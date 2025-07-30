@@ -3,28 +3,19 @@
 ### Concept Overview
 
 This project automates the deployment of a web application to a virtual machine (VM) using **GitHub Actions**. The solution:
-
-- Delivers seamless application updates from code commits to the live environment.
 - Minimizes manual intervention and deployment errors.
 - Implements a **rollback mechanism** to revert to the last stable state in case of failure.
 - Ensures high availability and faster recovery, especially for production environments.
 
----
-
 ### Objective
-
 To implement a **robust and reliable CI/CD pipeline** using:
 - **GitHub Actions** for automation,
 - **Rsync** for efficient file transfers,
 - **Systemd-managed services** like **Gunicorn** and **Celery**,
 - **Rollback support** in case of deployment issues,
-- Log management with **logrotate**,
 - Conditional service restarts based on code changes.
 
----
-
 ### Architecture Overview
-
 ```text
 Developer Pushes Code → GitHub Actions Workflow (.github/workflows/deploy.yml)
                          ↓
@@ -41,88 +32,41 @@ Developer Pushes Code → GitHub Actions Workflow (.github/workflows/deploy.yml)
 1. Developer pushes code to main or master.
 2. GitHub Actions picks up the push via self-hosted runner.
 3. deploy.sh is triggered by workflow and performs:
-  - Create timestamped directory in /home/ubuntu/releases/<timestamp>
-  - Copy source code from /home/ubuntu/git-source (not directly from .git)
-  - Set up or reuse shared Python virtual environment
-  - Install dependencies if requirements.txt changed
-  - Apply Django database migrations
-  - Copy .env file and link latest release with: `ln -sfn /home/ubuntu/releases/<timestamp> /home/ubuntu/current`
-  - Restart services (Gunicorn, Celery, etc.)
+     - Create timestamped directory in /home/ubuntu/releases/<timestamp>
+     - Copy source code from /home/ubuntu/git-source (not directly from .git)
+     - Set up or reuse shared Python virtual environment
+     - Install dependencies if requirements.txt changed
+     - Apply Django database migrations
+     - Copy .env file and link latest release with: `ln -sfn /home/ubuntu/releases/<timestamp> /home/ubuntu/current`
+     - Restart services (Gunicorn, Celery, etc.)
 4. If deployment fails:
-  - rollback_latest.sh is triggered
-  - Restores symlink to the previous release
-  - Restarts services to revert to stable state
+     - rollback_latest.sh is triggered
+     - Restores symlink to the previous release and Restarts services to revert to stable state
 5. Slack Notifications:
-  - ✅ Success → "Deployment Successful"
-  - ❌ Failure → "Deployment Failed - Rollback Triggered"
+     - ✅ Success → "Deployment Successful"
+     - ❌ Failure → "Deployment Failed - Rollback Triggered"
 
 ## Repository Structure
 ```
-/
+Project Structure:
+
 ├── .github/
 │   └── workflows/
-│       └── deploy.yml         # GitHub Actions CI/CD pipeline
-├── scripts/
-│   ├── deploy.sh              # Deployment script
-│   └── rollback_latest.sh     # Rollback script
-├── README.md
+│       └── deploy.yml             # GitHub Actions CI/CD pipeline
+├── github-source/                # Directory holding the checked-out source code
+├── releases/                     # Timestamped releases created by deploy.sh
+│   └── <timestamped-release>/    # Actual release directories
+│       └── Hiringdog-backend/    # Django project within each release
+├── deploy.sh                     # Main deployment script
+├── rollback_latest.sh            # Script to revert to the previous stable release
+├── README.md                     # Documentation and runbook
 
 ```
 
-## Virtual Machine Setup
-Script Name	|Description	| Path
-deploy.sh	  |Handles deployment with zero downtime	|/home/ubuntu/deploy.sh
-rollback_latest.sh	|Handles rollback to last stable release	|/home/ubuntu/rollback_latest.sh
-
-permissions:
-``` bash
-chmod +x /home/ubuntu/deploy.sh
-chmod +x /home/ubuntu/rollback_latest.sh
-```
-
-### Deployment Strategy 
-1. Efficient Code Sync
-``` bash.sh
-rsync -a \
-  --exclude '.git' \
-  --exclude '__pycache__' \
-  --exclude '*.pyc' \
-  --exclude '.pytest_cache' \
-  "$REPO_DIR/" "$RELEASE_DIR/"
-```
-2. Conditional Dependency Installation Only install Python dependencies if requirements.txt has changed:
-   ``` bash.sh
-   cmp -s "$CURRENT_RELEASE/requirements.txt" "$RELEASE_DIR/requirements.txt" || pip install -r requirements.txt
-   ```
-3. Shared Virtual Environment
-  - Reuse shared_venv across deployments to save time and space.
-4. Django App Lifecycle
- - python manage.py migrate
- - python manage.py check --deploy
- - Health check endpoint or management command
-5. Zero Downtime Reload (Gunicorn)
- ``` bash.sh
-  kill -USR2 <gunicorn_master_pid>  # start new master
-  kill -WINCH <old_master_pid>      # gracefully stop old workers
-  kill -TERM <old_master_pid>       # stop old master
-```
-6. Selective Celery Restart
- Restart only if celery/, tasks/, or related files have changed:
-``` bash.sh
-systemctl restart celery
-systemctl restart celery-beat
-```
-7. Old Release Cleanup
-  Keep only the last 5 releases: `` ls -dt /home/ubuntu/releases/* | tail -n +6 | xargs rm -rf ``
-
-8. Rollback Strategy
-Script: ` rollback_latest.sh `
-Rollback Logic:
-   - Identify the last successful release (based on timestamp)
-   - Point current symlink to that release
-   - Restart services to revert to previous state.
-
-### deploy.sh
+### Automated deployment process
+##### Scripts - Create an automated deployment and rollback scripts.
+***deploy.sh***: To automate the application deployment process with zero downtime.
+Location: deploy.sh: `/home/ubuntu/deploy.sh`
 ```script.sh
 #!/bin/bash
 #-e-errexit, -u-unset variables exit, -o-pipefail exit if one command fails
@@ -298,7 +242,9 @@ ls -1dt "$RELEASES_DIR"/* | tail -n +6 | xargs -r rm -rf
 
 exit 0
 ```
-### rollback_latest.sh
+#### rollback_latest.sh - Reverts the symlink to the previous stable release if something fails.
+location: : /home/ubuntu/rollback_latest.sh
+
 ```
 #!/bin/bash
 set -euo pipefail
@@ -378,8 +324,145 @@ fi
 log "[SUCCESS] Rollback complete."
 log "New symlink points to: $(readlink -f $SYMLINK)"
 ```
+Script Name	|Description	| Path
+deploy.sh	  |Handles deployment with zero downtime	|/home/ubuntu/deploy.sh
+rollback_latest.sh	|Handles rollback to last stable release	|/home/ubuntu/rollback_latest.sh
 
-### .github/workflows/staging-deploy.yml
+### Permissions:
+``` bash
+chmod +x /home/ubuntu/deploy.sh
+chmod +x /home/ubuntu/rollback_latest.sh
+```
+
+### Deployment Strategy 
+
+#### 1. Conditional Dependency Installation 
+Only install Python dependencies if requirements.txt has changed, saving time and resources. Avoids unnecessary reinstallation, speeds up deploys, and ensures dependencies are always up-to-date when needed.
+***Details:***
+- Computes a SHA256 hash of requirements.txt.
+- Compares it to the last deployed hash (stored in $REQ_HASH_FILE).
+```bash
+# Only installs if requirements.txt changed
+REQ_HASH=$(sha256sum requirements.txt | awk '{print $1}')
+if [ ! -f "$REQ_HASH_FILE" ] || [ "$(cat $REQ_HASH_FILE)" != "$REQ_HASH" ]; then
+pip install --no-cache-dir -r requirements.txt
+fi
+```
+- If changed or first deploy: 
+    - Upgrades pip for latest features and security.
+    - Installs dependencies with --no-cache-dir to avoid stale packages.
+    - Stores the new hash for future comparison.
+
+#### 2. Timestamp-based releases
+We use timestamp-based releases combined with symbolic links to manage and switch deployments cleanly.  
+This strategy allows us to:
+- Instantly revert to any previous release in seconds
+- Keep multiple releases available simultaneously
+- Switch to a new release without downtime
+```bash
+TIMESTAMP=$(date +%Y%m%d%H%M%S)
+RELEASE_DIR="$RELEASES_DIR/$TIMESTAMP"
+ln -sfn "$RELEASE_DIR" /home/ubuntu/Hiringdog-backend
+```
+- **Original Git Repository**:  
+  `/home/ubuntu/git-source`  
+  Contains the cloned GitHub repo (with `.git/`).
+- **Timestamped Release Directories**:  
+  `/home/ubuntu/releases/<timestamp>`  
+  Each deployment creates a new folder named by timestamp (e.g., `20250611111202`), created via `rsync` from the Git repo.
+- **Active Symlink Directory**:  
+  `/home/ubuntu/Hiringdog-backend`  
+  This is a symbolic link that always points to the **currently active release** of the application.
+  ```bash
+  ln -sfn "$RELEASE_DIR" /home/ubuntu/Hiringdog-backend
+  ```
+This ensures minimal disruption and safer, atomic deployments.
+
+#### 3. Zero Downtime Reload (Gunicorn)
+Performs a blue/green style, zero-downtime reload of the Gunicorn application server, ensuring no dropped requests during deploys.
+Sends signals in sequence:
+- USR2: Starts a new master process with new workers (loads new code).
+- WINCH: Gracefully shuts down old workers.
+- TERM: Terminates the old master process
+``` 
+  kill -USR2 "$GUNICORN_PID"      # start new master
+  kill -WINCH "$GUNICORN_PID"     # gracefully stop old workers
+  kill -TERM "$GUNICORN_PID"      # stop old master
+```
+**Zero Downtime:**
+- **No Request Loss**: All requests are handled during reload
+- **Seamless Transition**: Users don't experience any interruption
+
+
+#### 4. Selective Celery Restart
+ Restart only if celery.py/, tasks.py/, or related files have changed:
+```bash
+# Check if Celery-related files changed
+if echo "$CHANGED_FILES" | grep -E 'tasks\.py|celery(\.py|/)|requirements\.txt'; then
+    sudo systemctl restart celery
+    sudo systemctl restart celery-beat
+else
+    log "No changes affecting Celery. Skipping restart."
+fi
+```
+- **Faster Deployments**: Saves 10-15 seconds when Celery restart isn't needed
+- **Reduced Disruption**: Avoids unnecessary task queue interruptions
+- **Resource Efficiency**: Prevents unnecessary CPU and memory usage
+
+#### 5. Rollback Strategy
+Script: ` rollback_latest.sh `
+Rollback Logic:
+   - Identify the last successful release (based on timestamp)
+   - Point current symlink to that release
+   - Restart services to revert to previous state.
+
+## Self-Hosted Runner Setup in a VM
+### 1. Create a Dedicated User for GitHub Runner
+```bash
+sudo adduser --disabled-password --gecos "" github-runner
+```
+This user is isolated and used only for GitHub Actions. It has no root access by default.
+
+### 2. Register the Runner in GitHub
+- Go to your GitHub repo → Settings → Actions → Runners
+- Click "New self-hosted runner"
+- Choose Linux x64, follow setup instructions.
+```
+# Install runner
+cd /home/github-runner
+curl -o actions-runner-linux-x64-2.311.0.tar.gz -L https://github.com/actions/runner/releases/download/v2.311.0/actions-runner-linux-x64-2.311.0.tar.gz
+tar xzf ./actions-runner-linux-x64-2.311.0.tar.gz
+
+# Configure runner
+./config.sh --url https://github.com/your-org/your-repo --token YOUR_TOKEN
+```
+
+### 3. Install the Runner as a Service
+```bash
+cd /home/github-runner/actions-runner
+sudo ./svc.sh install
+sudo ./svc.sh start
+sudo ./svc.sh status
+```
+
+### User Permissions
+User - `ubuntu`- Runs the application services
+User- `github-runner`- Executes GitHub Actions workflows
+
+Use sudo visudo -f /etc/sudoers.d/github-runner to give NOPASSWD for only required commands.
+Example: 
+```
+rollback_latest.shgithub-runner ALL=(ALL) NOPASSWD: /bin/systemctl restart gunicorn, /bin/systemctl restar>
+# Allow managing GitHub runner services
+github-runner ALL=(ALL) NOPASSWD: /home/github-runner/actions-runner/svc.sh, \
+                                /bin/systemctl start actions.runner*, \
+                                /bin/systemctl stop actions.runner*, \
+                                /bin/systemctl status actions.runner*
+github-runner ALL=(ubuntu) NOPASSWD: /home/ubuntu/rollback_latest.sh
+github-runner ALL=(ubuntu) NOPASSWD: /home/ubuntu/deploy.sh
+```
+
+#### Create the following workflow file: file_path:`.github/workflows/staging-deploy.yml`
 ```
 name: Deploy to VM via Self-hosted Runner
 
@@ -433,4 +516,3 @@ jobs:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 ```
 
-   
