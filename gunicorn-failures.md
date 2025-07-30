@@ -1,7 +1,46 @@
 
-# Django Application Failures Runbook
+## Django Application Failures Runbook
 
-## 🔍 Initial Assessment
+### check Gunicorn configuration
+file path: ` /etc/systemd/system/gunicorn.service `
+```
+[Unit]
+Description=Gunicorn instance to serve Hiringdog
+After=network.target
+
+[Service]
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/Hiringdog-backend
+
+Environment="PATH=/home/ubuntu/shared_venv/bin"
+EnvironmentFile=/home/ubuntu/secrets/hiringdog.env
+Environment="PYTHONUNBUFFERED=1"
+
+ExecStart=/home/ubuntu/shared_venv/bin/gunicorn \
+  --workers 2 \
+  --pid /run/gunicorn/gunicorn.pid \
+  --bind unix:/run/gunicorn/gunicorn.sock \
+  hiringdogbackend.wsgi:application
+
+ExecReload=/bin/kill -s USR2 $MAINPID
+ExecStop=/bin/kill -s TERM $MAINPID
+
+PIDFile=/run/gunicorn/gunicorn.pid
+RuntimeDirectory=gunicorn
+RuntimeDirectoryMode=0755
+Restart=always
+
+# Redirecting standard output and error to log files
+StandardOutput=append:/var/log/hiringdog/gunicorn.log
+StandardError=append:/var/log/hiringdog/gunicorn_error.log
+
+# Set limits
+LimitNOFILE=4096
+
+[Install]
+WantedBy=multi-user.target
+```
 
 ### 1. Check Application Status
 ```bash
@@ -108,21 +147,9 @@ sudo systemctl restart gunicorn
 ### Scenario 3: Import/Module Errors
 
 **Symptoms:**
-- ImportError in logs
+- `ImportError`, `SyntaxError` in logs
 - ModuleNotFoundError
 - Application fails to start
-
-**Diagnosis:**
-```bash
-# Check Python environment
-cd /home/ubuntu/Hiringdog-backend
-which python
-python --version
-pip list
-
-# Test imports
-python manage.py check
-```
 
 **Resolution:**
 ```bash
@@ -131,15 +158,29 @@ cd /home/ubuntu/Hiringdog-backend
 source venv/bin/activate
 pip install -r requirements.txt --force-reinstall
 
-# Check virtual environment
-source venv/bin/activate
-pip install -r requirements.txt
+# check application code
+Fix any syntax, import, or environment variable issues.
 
 # Update Django settings
 python manage.py check
 ```
+### scenario 4: Invalid File Permissions or Ownership
 
-## 🔧 Advanced Troubleshooting
+**symptoms:**
+- Permission denied: '/run/gunicorn.sock'
+- Failed to open log file: Permission denied
+
+**Resolution:**
+Fix service file permissions:
+```
+sudo chown root:root /etc/systemd/system/gunicorn.service
+sudo chmod 644 /etc/systemd/system/gunicorn.service
+```
+Adjust ownership and permissions for socket and log files:
+```
+sudo chown ubuntu:ubuntu /run/gunicorn.sock
+sudo chmod 660 /run/gunicorn.sock
+```
 
 ### Debug Mode Investigation
 ```bash
@@ -152,29 +193,10 @@ grep -r "Exception" /var/log/hiringdog/
 grep -r "Traceback" /var/log/hiringdog/
 ```
 
-### Static Files Issues
-```bash
-# Collect static files
-python manage.py collectstatic --noinput
-
-# Check static files permissions
-ls -la /path/to/static/files/
-chmod -R 755 /path/to/static/files/
-```
-
-## 🚨 Escalation
-
 ### When to Escalate:
 - Application down for >15 minutes
 - Database corruption suspected
 - Multiple services affected
-
-## 📝 Post-Incident Actions
-
-1. **Document the incident** in incident log
-2. **Update runbook** with new findings
-3. **Schedule post-mortem** for critical issues
-4. **Implement preventive measures**
 
 ## 🔗 Related Runbooks
 
