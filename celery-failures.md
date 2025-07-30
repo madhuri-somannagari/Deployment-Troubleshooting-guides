@@ -207,8 +207,6 @@ sudo systemctl daemon-reload
 sudo systemctl restart celery
 ```
 
-## 🚨 Emergency Procedures
-
 ### Quick Recovery
 ```bash
 # Emergency restart all Celery services
