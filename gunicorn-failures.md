@@ -86,11 +86,6 @@ sudo systemctl status gunicorn --no-pager
 
 # Check service logs
 sudo journalctl -u gunicorn --no-pager -n 50
-
-# Test manual startup
-cd /home/ubuntu/Hiringdog-backend
-source venv/bin/activate
-gunicorn --bind 0.0.0.0:8000 hiringdogbackend.wsgi:application
 ```
 
 **Resolution:**
@@ -117,29 +112,29 @@ pip install -r requirements.txt
 - Process killed by OOM killer
 
 **Diagnosis:**
-```bash
-# Check system resources
-free -h
-df -h
-top
-htop
 
-# Check Django process memory usage
+Check system resources
+`free -h`, `df -h`, `top`, `htop`
+
+Check Django process memory usage
+``` bash
 ps aux | grep gunicorn
 ps aux --sort=-%mem | head -10
 ```
 
 **Resolution:**
+
+Restart application to free memory
 ```bash
-# Restart application to free memory
 sudo systemctl restart gunicorn
+```
+Reduce Gunicorn workers: `gunicorn --workers=2`
 
-# If persistent, increase memory limits
-# Edit systemd service file
-sudo nano /etc/systemd/system/gunicorn.service
-# Add: LimitMEMLOCK=infinity
+If persistent, increase memory limits
+Edit systemd service file if mandatory: `sudo nano /etc/systemd/system/gunicorn.service `: `Add: LimitMEMLOCK=infinity`
 
-# Reload and restart
+Reload and restart
+```bash
 sudo systemctl daemon-reload
 sudo systemctl restart gunicorn
 ```
@@ -183,7 +178,7 @@ sudo chmod 660 /run/gunicorn.sock
 ```
 
 ### Debug Mode Investigation
-```bash
+```
 # Enable debug logging temporarily
 # Edit settings.py: DEBUG = True
 # Add to LOGGING configuration
@@ -192,11 +187,6 @@ sudo chmod 660 /run/gunicorn.sock
 grep -r "Exception" /var/log/hiringdog/
 grep -r "Traceback" /var/log/hiringdog/
 ```
-
-### When to Escalate:
-- Application down for >15 minutes
-- Database corruption suspected
-- Multiple services affected
 
 ## 🔗 Related Runbooks
 
