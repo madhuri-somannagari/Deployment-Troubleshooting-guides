@@ -1,5 +1,69 @@
 # Celery Task Failures Runbook
+## celery config: /etc/systemd/system/celery.service
+```
+[Unit]
+Description=Celery Service
+After=network.target
 
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/Hiringdog-backend
+
+Environment="PATH=/home/ubuntu/shared_venv/bin"
+EnvironmentFile=/home/ubuntu/secrets/hiringdog.env
+Environment="PYTHONUNBUFFERED=1"
+
+ExecStart=/home/ubuntu/shared_venv/bin/celery -A hiringdogbackend worker --loglevel=info
+
+# Gracefully stop with SIGTERM
+KillSignal=SIGTERM
+TimeoutStopSec=300
+
+Restart=always
+RestartSec=3
+TimeoutSec=300
+LimitNOFILE=65536
+
+# Log to journal for easier access to logs
+StandardOutput=append:/var/log/hiringdog/celery.log
+StandardError=inherit
+
+[Install]
+WantedBy=multi-user.target
+```
+## celery-beat:  /etc/systemd/system/celery-beat.service 
+```
+[Unit]
+Description=Celery Beat Service
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/Hiringdog-backend
+
+Environment="PATH=/home/ubuntu/shared_venv/bin"
+EnvironmentFile=/home/ubuntu/secrets/hiringdog.env
+Environment="PYTHONUNBUFFERED=1"
+
+ExecStart=/home/ubuntu/shared_venv/bin/celery -A hiringdogbackend beat \
+  --scheduler django_celery_beat.schedulers.DatabaseScheduler \
+  --loglevel=info
+
+Restart=always
+RestartSec=3
+TimeoutSec=300
+LimitNOFILE=65536
+
+StandardOutput=append:/var/log/hiringdog/celery_beat.log
+StandardError=inherit
+
+[Install]
+WantedBy=multi-user.target
+```
 ### 1. Check Celery Services Status
 ```bash
 # Check Celery worker status
@@ -42,7 +106,7 @@ sudo grep -i "error\|exception\|traceback" /var/log/hiringdog/celery_beat.log | 
 - Test Redis connection
 - Test Celery broker connection
 
-## 🛠️ Common Failure Scenarios
+## 🛠Common Failure Scenarios
 
 ### Scenario 1: Celery Workers Not Starting
 
@@ -74,54 +138,44 @@ sudo systemctl daemon-reload
 sudo systemctl enable celery
 sudo systemctl restart celery
 ```
-
 - Check broker connection
 - Check environment variables
 
-### Scenario 2: RabbitMQ Connection Issues
+### Scenario 2: Celery Beat Runs but Doesn’t Trigger Tasks
+
+**Symptoms:**
+celery-beat.service is running, but periodic tasks aren’t firing
+
+**Causes:**
+django_celery_beat is not migrated or not registered properly
+**Resolution:**
+Run migrations:
+```bash
+python manage.py migrate
+```
+
+### Scenario 3: RabbitMQ Connection Issues
 
 **Symptoms:**
 - Celery workers disconnected from RabbitMQ
 - Tasks stuck in queue
 - Connection timeout errors
 
-**Diagnosis:**
-```bash
-# Check RabbitMQ status
-sudo systemctl status rabbitmq-server
-rabbitmqctl status
-
-# Check RabbitMQ queues
-rabbitmqctl list_queues
-rabbitmqctl list_connections
-
-# Check RabbitMQ logs
-sudo journalctl -u rabbitmq-server -n 50
-
-# Test RabbitMQ connection
-rabbitmqctl ping
+**Resolution:**
+- Restart RabbitMQ service
+```
+sudo systemctl restart rabbitmq-server
 ```
 
-**Resolution:**
-```bash
-# Restart RabbitMQ service
-sudo systemctl restart rabbitmq-server
-
-# Wait for RabbitMQ to fully start
-sleep 10
-
-# Restart Celery workers
+- Wait for RabbitMQ to fully start: `sleep 10`
+- Restart Celery workers
+```
 sudo systemctl restart celery
 sudo systemctl restart celery-beat
-
-# Check RabbitMQ configuration
-sudo cat /etc/rabbitmq/rabbitmq-env.conf
-
-# Verify queues are working
-rabbitmqctl list_queues
 ```
+- Check RabbitMQ configuration and Confirm CELERY_BROKER_URL: `CELERY_BROKER_URL="amqp://guest:guest@localhost:5672//" `
 
-### Scenario 3: Memory/Resource Issues
+### Scenario 4: Memory/Resource Issues
 
 **Symptoms:**
 - Workers running out of memory
@@ -129,31 +183,26 @@ rabbitmqctl list_queues
 - Workers being killed by OOM
 
 **Diagnosis:**
-```bash
-# Check system resources
-free -h
-top
-htop
-
-# Check Celery worker memory usage
+- Check system resources `free -h`, `top`, `htop`
+- Too many concurrent workers
+- Check Celery worker memory usage
+```
 ps aux | grep celery | grep -v grep
-
 ```
 
 **Resolution:**
-```bash
-# Restart workers to free memory
+
+- Restart workers to free memory
+```
 sudo systemctl restart celery
+```
+- Adjust worker concurrency
+`sudo nano /etc/systemd/system/celery.service`: `Add to ExecStart: --concurrency=2`
+- Increase memory limits
+`sudo nano /etc/systemd/system/celery.service`: `Add: LimitMEMLOCK=infinity`
 
-# Adjust worker concurrency
-sudo nano /etc/systemd/system/celery.service
-# Add to ExecStart: --concurrency=2
-
-# Increase memory limits
-sudo nano /etc/systemd/system/celery.service
-# Add: LimitMEMLOCK=infinity
-
-# Reload and restart
+- Reload and restart
+```
 sudo systemctl daemon-reload
 sudo systemctl restart celery
 ```
@@ -165,10 +214,9 @@ sudo systemctl restart celery
 # Emergency restart all Celery services
 sudo systemctl restart celery
 sudo systemctl restart celery-beat
-sudo systemctl restart redis
 
 # Check if services are running
-sudo systemctl status celery celery-beat redis
+sudo systemctl status celery celery-beat
 ```
 ### Complete Service Reset
 ```bash
