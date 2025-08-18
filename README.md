@@ -1,12 +1,13 @@
 
 # HiringDog Backend Runbooks
 
-This directory contains comprehensive runbooks for various failure scenarios in the HiringDog Django application.
+This directory contains comprehensive runbooks for Deployment and various failure scenarios in the HiringDog Django application.
 
 
 ## 📋 Available Runbooks
 
 ### Application Level
+- [ Deploy_app_in_vm](./Deploy-vm.md)
 - [ Gunicorn Failures](./gunicorn-failures.md)
 - [Celery Task Failures](./celery-failures.md)
 - [Celery-beat Task Failures](./celery-beat-failures.md)
