@@ -7,7 +7,7 @@ This directory contains comprehensive runbooks for Deployment and various failur
 ## 📋 Available Runbooks
 
 ### Application Level
-- [ Deploy_app_in_vm](./Deploy-vm.md)
+- [ Deploy_app_in_vm](https://github.com/madhuri-somannagari/Deployment-guides.git/Deployment_vm.md)
 - [ Gunicorn Failures](./gunicorn-failures.md)
 - [Celery Task Failures](./celery-failures.md)
 - [Celery-beat Task Failures](./celery-beat-failures.md)
