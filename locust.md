@@ -1,9 +1,7 @@
 ## Load Testing & Auto-Scaling Strategy
-
 To conduct effective load testing and prepare for auto-scaling, we use **Locust**, a Python-based load testing tool. This process helps identify system bottlenecks, max user capacity, and prepares your infrastructure to scale reliably under load.
 
 ### Objective
-
 - Evaluate the system’s performance under concurrent and sustained load using Locust
 - Identify the maximum concurrent users the current infrastructure can support
 - Plan an efficient vertical and horizontal scaling strategy
@@ -14,11 +12,11 @@ To conduct effective load testing and prepare for auto-scaling, we use **Locust*
 
 ### Test Scenarios
 
-#### 🔸 High Burst Load: `500 Interviews/Minute`
+#### High Burst Load: `500 Interviews/Minute`
 - ≈ 8.3 requests/second
 - Simulates many users scheduling interviews concurrently
 
-#### 🔸 Sustained Load: `2000–4000 Interviews/Day`
+#### Sustained Load: `2000–4000 Interviews/Day`
 - ≈ 83–167 per hour (1.4–2.8 per minute)
 - Simulates real-time traffic across the day
 
@@ -38,13 +36,14 @@ from locust import HttpUser, task, between, SequentialTaskSet
 # ... (rest of your code) ...
 
 class StagingUser(HttpUser):
-    wait_time = between(1, 3)
+    wait_time = between(1, 3)    # seconds between requests
+
     host = "http://localhost:8000"
     @task
     def login(self):
         self.client.post("/api/login/", json={
-            "email": "madhuri@hiringdog.com",
-            "password": "Madhu@9182"
+            "email": "XXXXXX@hiringdog.com",
+            "password": "XXXXXX"
             })
 ```
 Adjust the endpoint and payload to reflect your application behavior accurately.
