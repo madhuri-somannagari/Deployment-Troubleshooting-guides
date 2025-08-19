@@ -1,4 +1,5 @@
 # Celery Task Failures Runbook
+
 ## celery config: /etc/systemd/system/celery.service
 ```
 [Unit]
@@ -83,8 +84,8 @@ ps aux | grep redis
 ### 2. Check Celery Logs
 ```bash
 # Celery logs
-sudo journalctl -u celery -f
-sudo tail -f /var/log/hiringdog/celery.log
+sudo journalctl -u celery -f                     ## read from systemd journal
+sudo tail -f /var/log/hiringdog/celery.log       ## read from log file on disk 
 sudo journalctl -u celery-beat -f
 sudo tail -f /var/log/hiringdog/celery_beat.log
 
@@ -105,8 +106,47 @@ sudo grep -i "error\|exception\|traceback" /var/log/hiringdog/celery_beat.log | 
 - Test RabbitMQ connection
 - Test Redis connection
 - Test Celery broker connection
+------
+### Issue: Celery services were always restarted during deployments, even if there were no relevant changes.
+**solution:**
+Script checks for changes in known Celery-related files (tasks.py, celery.py, requirements.txt, settings.py, models.py, utils/, services/, jobs/).
+- If any of those changed → Celery restarts automatically.
+- If none of those changed → the script checks the last commit message.
+- If commit message contains [restart-celery] → force restart Celery anyway. Otherwise → skip restart.
 
-## 🛠Common Failure Scenarios
+In Script Replace your current block:
+``` 
+In Script Replace your current block:
+# ===== Celery restart decision (file check + commit override) =====
+
+# Get latest commit message
+COMMIT_MSG=$(git log -1 --pretty=%B "$CURRENT_COMMIT" || echo "")
+
+# File patterns that impact Celery
+CELERY_AFFECTING_REGEX='(tasks\.py|celery(\.py|/)|requirements\.txt|settings\.py|.*models\.py|.*utils\.py|services/|jobs/)'
+
+if echo "$CHANGED_FILES" | grep -Eiq "$CELERY_AFFECTING_REGEX" \
+   || echo "$COMMIT_MSG" | grep -iq '\[restart-celery\]'; then
+    log "Restarting Celery and Celery Beat..."
+    sudo systemctl restart celery
+    sudo systemctl restart celery-beat
+else
+    log "No changes affecting Celery. Skipping restart."
+fi
+```
+**Case 1:** Changed a Celery-related file (auto-detect)
+Celery restarts automatically (no need to add [restart-celery]).
+
+**Case 2:** changed a file
+In git:
+```
+git add views.py
+git commit -m "fix: Resolve dashboard bugs [restart-celery] "
+git push origin staging-production
+```
+Even though no Celery files changed, [restart-celery] forces the restart.
+
+## Common Failure Scenarios
 
 ### Scenario 1: Celery Workers Not Starting
 
