@@ -119,17 +119,35 @@ In Script Replace your current block:
 In Script Replace your current block:
 # ===== Celery restart decision (file check + commit override) =====
 
-# Get latest commit message
-COMMIT_MSG=$(git log -1 --pretty=%B "$CURRENT_COMMIT" || echo "")
+COMMIT_MSG=$(git log -1 --pretty=%B "$CURRENT_COMMIT" 2>/dev/null || echo "")
 
-# File patterns that impact Celery
-CELERY_AFFECTING_REGEX='(tasks\.py|celery(\.py|/)|requirements\.txt|settings\.py|.*models\.py|.*utils\.py|services/|jobs/)'
+# Files/patterns that typically affect Celery behavior
+CELERY_AFFECTING_REGEX='(tasks\.py|celery(\.py|/)|celeryconfig\.py|hiringdogbackend/celery\.py|requirements\.txt|pyproject\.toml|poetry\.lock|settings\.py|hiringdogbackend/settings/.*\.py|.*models\.py|.*utils\.py|services/|jobs/)'
 
-if echo "$CHANGED_FILES" | grep -Eiq "$CELERY_AFFECTING_REGEX" \
-   || echo "$COMMIT_MSG" | grep -iq '\[restart-celery\]'; then
+SHOULD_RESTART=false
+
+# A) File-based detection (most cases)
+if echo "$CHANGED_FILES" | grep -Eiq "$CELERY_AFFECTING_REGEX"; then
+    SHOULD_RESTART=true
+elif echo "$COMMIT_MSG" | grep -Eiq '\[(restart-?celery|restart:celery|restart:all)\]'; then
+    SHOULD_RESTART=true
+fi
+# B) Content-based detection (decorators/imports) to catch indirect changes
+if [ "$SHOULD_RESTART" = false ] && [ -n "$LAST_DEPLOYED_COMMIT" ]; then
+    if git diff "$LAST_DEPLOYED_COMMIT" "$CURRENT_COMMIT" -U0 -- '*.py' \
+       | grep -Eiq '@shared_task|(^|\s)app\.task|from\s+celery\s+import|import\s+celery'; then
+        SHOULD_RESTART=true
+    fi
+fi
+
+if [ "$SHOULD_RESTART" = true ]; then
     log "Restarting Celery and Celery Beat..."
     sudo systemctl restart celery
     sudo systemctl restart celery-beat
+    sleep 5
+    systemctl is-active --quiet celery || { log "[ERROR] Celery failed to restart"; exit 1; }
+    systemctl is-active --quiet celery-beat || { log "[ERROR] Celery Beat failed to restart"; exit 1; }
+    log "Celery services restarted successfully"
 else
     log "No changes affecting Celery. Skipping restart."
 fi
